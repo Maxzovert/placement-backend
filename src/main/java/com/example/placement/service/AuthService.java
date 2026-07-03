@@ -22,8 +22,9 @@ public class AuthService {
     private final UserRepo userRepo;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
-    private static final Pattern ROLE_BASED_EMAIL_PATTERN =
-            Pattern.compile("^[a-z0-9._%+-]+@([a-z]+)\\.[a-z0-9.-]+\\.[a-z]{2,}$");
+    /** Login and registration: only {@code local@student.com}, {@code local@staff.com}, or {@code local@system.com}. */
+    private static final Pattern STRICT_ROLE_EMAIL_PATTERN =
+            Pattern.compile("^[a-z0-9._%+-]+@(student|staff|system)\\.com$");
 
     //constructor based dependency injection
     public AuthService(UserRepo userRepo, PasswordEncoder passwordEncoder, JwtUtil jwtUtil) {
@@ -39,24 +40,26 @@ public class AuthService {
                 || request.getPassword() == null || request.getPassword().trim().isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Missing required fields");
         }
+        if (request.getRole() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Role is required");
+        }
         String email = request.getEmail().trim().toLowerCase();
+        requireStrictRoleEmail(email, request.getRole());
+
         User existing = userRepo.findByEmail(email).orElse(null);
 
         if (existing == null) {
-            RoleType selectedRole = request.getRole();
-            if (selectedRole == null) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Role is required for registration");
-            }
-            validateRoleBasedEmail(email, selectedRole);
-
             User user = new User();
             user.setEmail(email);
             user.setPassword(passwordEncoder.encode(request.getPassword()));
-            user.setRole(selectedRole);
+            user.setRole(request.getRole());
             User saved = userRepo.save(user);
             return new AuthResponse(jwtUtil.generateToken(saved), saved.getEmail(), extractRoleNames(saved));
         }
 
+        if (existing.getRole() == null || existing.getRole() != request.getRole()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
+        }
         String stored = existing.getPassword();
         if (stored == null || !isBcryptEncoded(stored) || !passwordEncoder.matches(request.getPassword(), stored)) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
@@ -83,7 +86,7 @@ public class AuthService {
         return authenticateOrRegister(authRequest);
     }
 
-    // Backward-compatible login method mapped to unified auth flow.
+    // Login only: strict name@student.com | name@staff.com | name@system.com; no auto-registration.
     public AuthResponse login(AuthRequest request) {
         if (request == null
                 || request.getRole() == null
@@ -91,16 +94,29 @@ public class AuthService {
                 || request.getPassword() == null || request.getPassword().trim().isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Missing required fields");
         }
-        return authenticateOrRegister(request);
+        String email = request.getEmail().trim().toLowerCase();
+        requireStrictRoleEmail(email, request.getRole());
+
+        User existing = userRepo.findByEmail(email).orElse(null);
+        if (existing == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
+        }
+        if (existing.getRole() == null || existing.getRole() != request.getRole()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
+        }
+        String stored = existing.getPassword();
+        if (stored == null || !isBcryptEncoded(stored) || !passwordEncoder.matches(request.getPassword(), stored)) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
+        }
+        return new AuthResponse(jwtUtil.generateToken(existing), existing.getEmail(), extractRoleNames(existing));
     }
 
-    // Validates <name>@<role>.<college-domain> format and selected role match.
-    private void validateRoleBasedEmail(String email, RoleType roleType) {
-        Matcher matcher = ROLE_BASED_EMAIL_PATTERN.matcher(email);
+    private static void requireStrictRoleEmail(String email, RoleType roleType) {
+        Matcher matcher = STRICT_ROLE_EMAIL_PATTERN.matcher(email);
         if (!matcher.matches()) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
-                    "Email must follow <name>@<role>.<college-domain> format"
+                    "Use strictly: <name>@student.com for Student, <name>@staff.com for Staff, <name>@system.com for System"
             );
         }
         String roleSegment = matcher.group(1);
@@ -108,7 +124,7 @@ public class AuthService {
         if (!expected.equals(roleSegment)) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
-                    "Email domain role segment does not match selected role"
+                    "Use strictly: <name>@student.com for Student, <name>@staff.com for Staff, <name>@system.com for System"
             );
         }
     }

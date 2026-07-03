@@ -80,8 +80,9 @@ public class StudentProfileController {
         return service.addLink(platform, studentId);
     }
 
-    @GetMapping("/{studentId}/profile")
-    public StudentProfile getProfile(@PathVariable Long studentId){
-        return service.getStudentProfile(studentId);
+    /** Path id is {@link com.example.placement.entity.main.User} id (same as POST create profile). */
+    @GetMapping("/{userId}/profile")
+    public StudentProfile getProfile(@PathVariable Long userId) {
+        return service.getStudentProfile(userId);
     }
 }

@@ -9,9 +9,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.util.EnumSet;
-import java.util.List;
-
 @Service
 public class StudentProfileService {
     private final StudentProfileRepo studentRepo;
@@ -73,29 +70,12 @@ public class StudentProfileService {
         return saved;
     }
 
-    //get profile
-    public StudentProfile getStudentProfile(Long studentId){
-        StudentProfile profile = studentRepo.findById(studentId)
+    /**
+     * Loads the logged-in student's profile by {@code userId} (FK on {@link StudentProfile#getUser()}).
+     * Does not enforce platform-link completeness so clients can read partial profiles (e.g. before job apply).
+     */
+    public StudentProfile getStudentProfile(Long userId) {
+        return studentRepo.findByUser_Id(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Student not found"));
-        validateRequiredPlatformLinks(studentId);
-        return profile;
-    }
-
-    private void validateRequiredPlatformLinks(Long studentId) {
-        List<Platform> links = platformRepo.findByStudentId(studentId);
-        EnumSet<PlatformType> present = EnumSet.noneOf(PlatformType.class);
-        for (Platform link : links) {
-            if (link.getType() != null && link.getUrl() != null && !link.getUrl().trim().isEmpty()) {
-                present.add(link.getType());
-            }
-        }
-        if (!(present.contains(PlatformType.GITHUB)
-                && present.contains(PlatformType.LINKEDIN)
-                && present.contains(PlatformType.RESUME))) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Required platform links missing: GITHUB, LINKEDIN and RESUME"
-            );
-        }
     }
 }

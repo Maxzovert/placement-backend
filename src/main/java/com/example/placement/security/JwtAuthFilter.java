@@ -29,6 +29,13 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
+        // Never validate or load users from JWT on auth endpoints — stale tokens must not break login/register.
+        String uri = request.getRequestURI();
+        if (uri != null && uri.contains("/api/auth/")) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         String authHeader = request.getHeader("Authorization");
 
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
